@@ -15,6 +15,16 @@ static int procfs_buf_len = 0;
 static int previous_time = 0;
 static int previous_nsec = 0;
 
+/*
+enum States{idle = 0, offline = 1, loading = 0, up = 0, down = 0};
+enum Workers{daily, maintenance, mail};
+
+static int floor = 0;
+static int load = 0;
+static int serviced = 0;
+static int waiting = 0;
+*/
+
 static ssize_t procfile_read(struct file* file, char * ubuf, size_t count, loff_t *ppos)
 {
 
