@@ -10,7 +10,7 @@ MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Adds all sorts of people to a list and gets stats with proc");
 
 #define ENTRY_NAME "passenger_list"
-#define ENTRY_SIZE 1000
+#define NUM_FLOORS 3
 #define PERMS 0644
 #define PARENT NULL
 static struct file_operations fops;
@@ -18,34 +18,39 @@ static struct file_operations fops;
 static char *message;
 static int read_p;
 
+
+
+
+
+//building or floor_list is a structure with a height = num floors in the building's list
+//each element of the list is a floor struct with a give length and a list of passengers
+struct {
+    int total_height;
+    struct list_head list;
+} building;
+
 struct {
 	int size;
+    //if needed direction is established with current_floor (< | > | ==) destination floor
+    int current_floor;
+    int destination_floor;
 	int total_weight;
 	struct list_head list;
 } elevator;
-/*
-gonna have like a double ptr of lists called floors
-struct {
-    int size (num floors)
-    floor **floors;
-    list_head list
-} floorList;
 
-floors
-{
-Floor 1 -> p1 -> p2 -> ...
-^
-Floor 2 -> p1 -> p2 -> ...
-^
-Floor 3 -> p1 -> p2 -> ...
-}
+typedef struct floor {
+    int size;
+    struct list_head list;
+};
 
-struct {
-    int index (num floor, bottom up starting at 1)
-    int size (num people on floor)
-    list_head list
-} floor;
-*/
+typedef struct passenger {
+    int start_floor;
+    int destination_floor;
+    int type;
+    int weight;
+	const char *name;
+	struct list_head list;
+} Passenger;
 
 #define DAILY_WORKER 0
 #define MAINTENANCE_PERSON 1
@@ -54,23 +59,6 @@ struct {
 #define NUM_PERSON_TYPES 3
 #define MAX_WEIGHT 1000
 
-//need to change this format
-//we want list of passengers for each floor
-//we can try to make it work for like 3 floors first
-struct {
-	int size;
-	int capacity;
-	struct list_head list;
-} passengers;
-
-typedef struct person {
-    int start_floor;
-    int destination_floor;
-    int type;
-    int weight;
-	const char *name;
-	struct list_head list;
-} Passenger;
 //need to make it add to the list corresponding to that start floor
 //need list of lists, iterate to find the one to add this person to
 int add_person_to_list(int start_floor, int destination_floor, int type, int weight = 150) {
