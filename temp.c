@@ -40,8 +40,9 @@ struct {
 
 typedef struct floor {
     int size;
+    int height;
     struct list_head list;
-};
+} Floor;
 
 typedef struct passenger {
     int start_floor;
@@ -61,11 +62,7 @@ typedef struct passenger {
 
 //need to make it add to the list corresponding to that start floor
 //need list of lists, iterate to find the one to add this person to
-int add_person_to_list(int start_floor, int destination_floor, int type, int weight = 150) {
-    if(persons.size >= persons.capacity) {
-        return 0;
-    }
-    
+int new_passenger(int start_floor, int destination_floor, int type, int weight = 150) {
     Passenger *new_passenger;
     new_passenger = kmalloc(sizeof(Passenger)*1, __GFP_RECLAIM);
 
@@ -86,20 +83,69 @@ int add_person_to_list(int start_floor, int destination_floor, int type, int wei
         default;
             return -1;
     }
+
     new_passenger->start_floor = start_floor;
     new_passenger->destination_floor = destination_floor;
     new_passenger->type = type;
     new_passenger->weight = weight;
 
-    list_add_tail(&new_passenger->list, &passengers->list);
-
-    passengers.size += 1;
+    return 0;
+}
+int add_passenger_to_floor(Passenger *p, Floor *f) {
+    //exceptions
+    if(p == NULL) {
+        return -1;
+    } else if(f == NULL) {
+        return -1;
+    } else if(p->start_floor != f->height) {
+        return -1;
+    }
+        
+    list_add_tail(&p->list, &floor->list);
+    f.size += 1;
 
     return 0;
 }
+int add_passenger_to_building(Passenger *p) {
+    if(p == NULL) {
+        return -1;
+    }
+    struct list_head *temp;
+    Floor *current_floor;
+    if(current_floor == NULL) {
+        return -ENOMEM;
+    }
+    list_for_each(temp, &building.list) {
+        current_floor = list_entry(temp, Floor, list);
+        if(current_floor->height == p->start_floor) {
+            if(add_passenger_to_floor(p, current_floor) == -1) {
+                return -1;
+            }
+        }
+    }
+
+    return 0;
+}
+int new_building(void) {
+    building.total_height = NUM_FLOORS;
+    Floor *current_floor = kmalloc(sizeof(Floor)*1, __GFP_RECLAIM);
+    if(current_floor == NULL) {
+        return -ENOMEM
+    }
+    for(int i = 0; i < NUM_FLOORS; i++) {
+        current_floor->size = 0;
+        current_floor->height = i+1;
+        list_add_tail(&current_floor->list, &building->list);
+    }
+
+    return 0;
+}
+
 //this is addition of one person to the elevator
-//assumes we feed this into the elevator correctly
 int add_person_to_elevator(Passenger *current_passenger) {
+    if(current_passenger == NULL) {
+        return -1;
+    }
     if(elevator.total_weight + current_passenger->weight > MAX_WEIGHT) {
         return -1;
     }
@@ -108,7 +154,7 @@ int add_person_to_elevator(Passenger *current_passenger) {
     return 0;
 }
 //should add a whole floor to the elevator until capacity
-int add_people_to_elevator(floorList current_floor) {
+int add_people_to_elevator(Floor current_floor) {
     struct list_head *temp;
     Passenger *current_passenger;
 
