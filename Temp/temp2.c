@@ -10,6 +10,7 @@ MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Adds all sorts of people to a list and gets stats with proc");
 
 #define ENTRY_NAME "passenger_list"
+#define ENTRY_SIZE 1000
 #define NUM_FLOORS 3
 #define PERMS 0644
 #define PARENT NULL
@@ -48,15 +49,15 @@ typedef struct {
 
 //create passenger and add to floor[start_floor]
 int create_passenger(int start_floor, int destination_floor, int type) {
-    
+    int weight;
     Passenger *new_passenger;
     new_passenger = kmalloc(sizeof(Passenger)*1, __GFP_RECLAIM);
-    int weight = 150;
 
     if(new_passenger == NULL) {
         return -ENOMEM;
     }
 
+    weight = 150;
     switch(type) {
         case DAILY_WORKER:
             new_passenger->name = "D";
@@ -69,7 +70,7 @@ int create_passenger(int start_floor, int destination_floor, int type) {
             new_passenger->name = "C";
             new_passenger->weight += 75;
             break;
-        default;
+        default:
             return -1;
     }
 
@@ -79,14 +80,14 @@ int create_passenger(int start_floor, int destination_floor, int type) {
     new_passenger->weight = weight;
 
     list_add_tail(&new_passenger->list, &floor.list);
-    f.size += 1;
+    floor.size += 1;
 
     return 0;
 }
 
 int delete_passengers(void) {
-    list_head *temp;
-    list_head *dummy
+    struct list_head *temp;
+    struct list_head *dummy;
     Passenger *p;
 
     list_for_each_safe(temp, dummy, &floor.list) {
@@ -100,18 +101,23 @@ int delete_passengers(void) {
 int print_floor(void) {
     struct list_head *temp;
     Passenger *p;
+    char *buf;
 
-    if(p == NULL) {
-        return -ENOMOM;
-    }
+    buf = kmalloc(sizeof(char) * 100, __GFP_RECLAIM);
+	if (buf == NULL) {
+		printk(KERN_WARNING "print_building null buffer");
+		return -ENOMEM;
+	}
+    strcpy(message, "");
 
     sprintf(buf, "[ ] Floor %d: %d ", floor.height + 1, floor.size);
+    strcat(message, buf);
 
     list_for_each(temp, &floor.list) {
         p = list_entry(temp, Passenger, list);
         sprintf(buf, "%s ", p->name);
+        strcat(message, buf);
     }
-    strcat(message, buf);
     strcat(message, "\n");
 
     kfree(buf);
@@ -122,13 +128,16 @@ int print_floor(void) {
 /********************************************************************/
 
 int elevator_proc_open(struct inode *sp_inode, struct file *sp_file) {
+    int i;
 	read_p = 1;
 	message = kmalloc(sizeof(char) * ENTRY_SIZE, __GFP_RECLAIM | __GFP_IO | __GFP_FS);
 	if (message == NULL) {
 		printk(KERN_WARNING "elevator_proc_open");
 		return -ENOMEM;
 	}
-	create_passenger(0, 1, get_random_int() % NUM_PERSON_TYPES);
+    for(i = 0; i < 10; i++) {
+        create_passenger(0, 1, get_random_int() % NUM_PERSON_TYPES);
+    }
 	//add_elevator(get_random_int() % NUM_elevator_TYPES);
 	return print_floor();
 }
