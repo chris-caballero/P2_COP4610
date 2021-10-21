@@ -18,10 +18,6 @@ static struct file_operations fops;
 static char *message;
 static int read_p;
 
-
-
-
-
 //building or floor_list is a structure with a height = num floors in the building's list
 //each element of the list is a floor struct with a give length and a list of passengers
 struct {
@@ -78,9 +74,11 @@ int new_passenger(int start_floor, int destination_floor, int type, int weight =
             break;
         case MAINTENANCE_PERSON:
             new_passenger->name = "M";
+            new_passenger->weight += 20;
             break;
         case MAIL_CARRIER:
             new_passenger->name = "C";
+            new_passenger->weight += 75;
             break;
         default;
             return -1;
