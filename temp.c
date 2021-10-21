@@ -33,8 +33,8 @@ struct {
 	int size;
     //if needed direction is established with current_floor (< | > | ==) destination floor
     int current_floor;
-    int destination_floor;
 	int total_weight;
+    int direction;
 	struct list_head list;
 } elevator;
 
@@ -59,6 +59,8 @@ typedef struct passenger {
 
 #define NUM_PERSON_TYPES 3
 #define MAX_WEIGHT 1000
+
+int min(int a, int b) { return (a <= b) ? a : b; }
 
 //need to make it add to the list corresponding to that start floor
 //need list of lists, iterate to find the one to add this person to
@@ -112,6 +114,7 @@ int add_passenger_to_building(Passenger *p) {
     }
     struct list_head *temp;
     Floor *current_floor;
+    current_floor = kmalloc(sizeof(Floor)*1, __GFP_RECLAIM);
     if(current_floor == NULL) {
         return -ENOMEM;
     }
@@ -126,27 +129,32 @@ int add_passenger_to_building(Passenger *p) {
 
     return 0;
 }
-int new_building(void) {
+
+void new_building(void) {
     building.total_height = NUM_FLOORS;
-    Floor *current_floor = kmalloc(sizeof(Floor)*1, __GFP_RECLAIM);
+    Floor *current_floor;
+    current_floor = kmalloc(sizeof(Floor)*1, __GFP_RECLAIM);
     if(current_floor == NULL) {
         return -ENOMEM
     }
     for(int i = 0; i < NUM_FLOORS; i++) {
         current_floor->size = 0;
-        current_floor->height = i+1;
+        current_floor->height = i;
         list_add_tail(&current_floor->list, &building->list);
     }
-
-    return 0;
 }
 
+void new_elevator(void) {
+	elevator.size = 0;
+    elevator.current_floor = 0;
+	elevator.total_weight = 0;
+    elevator.direction = 0;
+}
 //this is addition of one person to the elevator
 int add_person_to_elevator(Passenger *current_passenger) {
     if(current_passenger == NULL) {
         return -1;
-    }
-    if(elevator.total_weight + current_passenger->weight > MAX_WEIGHT) {
+    } else if(elevator.total_weight + current_passenger->weight > MAX_WEIGHT) {
         return -1;
     }
     elevator.total_weight += current_passenger->weight;
@@ -154,30 +162,142 @@ int add_person_to_elevator(Passenger *current_passenger) {
     return 0;
 }
 //should add a whole floor to the elevator until capacity
-int add_people_to_elevator(Floor current_floor) {
+//also remove person from floor list 
+int load_elevator(Floor *current_floor) {
+    if(current_floor->height != elevator.current_floor) {
+        return -1;
+    }
     struct list_head *temp;
     Passenger *current_passenger;
+    current_passenger = kmalloc(sizeof(Passenger)*1, __GFP_RECLAIM);
+    if(current_passenger == NULL) {
+        return -ENOMEM;
+    }
 
-    list_for_each(temp, &current_floor.list) {
+    list_for_each(temp, &current_floor->list) {
         current_passenger = list_entry(temp, Passenger, list);
         if(add_person_to_elevator(current_passenger) == -1) {
             return -1;
         }
+        elevator.size += 1;
+        //remove from floor
+        list_del(current_passenger);
+        kfree(current_passenger);
+    }
+    return 0;
+}
+//take people off the elevator at their destination
+int unload_elevator(Floor *current_floor) {
+    if(current_floor->height != elevator.current_floor) {
+        return -1;
+    }
+    struct list_head *temp;
+    p = kmalloc(sizeof(Passenger)*1, __GFP_RECLAIM);
+    if(p == NULL) {
+        return -ENOMEM;
+    }
+    list_for_each(temp, &elevator.list) {
+        Passenger *p;
+        p = list_entry(temp, Passenger, list);
+        if(p->destination_floor == current_floor->height) {
+            list_del(p);
+            kfree(p);
+            elevator.size -= 1;
+        }
+    }
+    return 0;
+}
+int unload_floor(Floor *current_floor) {
+    struct list_head *temp;
+    Passenger *p;
+    p = kmalloc(sizeof(Passenger)*1, __GFP_RECLAIM);
+    if(p == NULL) {
+        return -ENOMEM;
+    }
+    list_for_each(temp, &current_floor->list) {
+        p = list_entry(temp, Passenger, list);
+        list_del(p);
+        kfree(p);
+        floor.size -= 1;
     }
     return 0;
 }
 
-//must define floorList
+void destroy_building(void) {
+    struct list_head *temp;
+    Floor *f;
+    f = kmalloc(sizeof(Floor)*1, __GFP_RECLAIM);
+    if(f == NULL) {
+        return -ENOMEM;
+    }
+    //not sure about this either
+    //should unload the elevator?
+    while(take_to_destinations() != 1) {
+        continue;
+    }
+    //destroy the floors
+    list_for_each(temp, &building.list) {
+        f = list_entry(temp, Floor, list);
+        unload_floor(f);
+        list_del(f);
+        kfree(f);
+    }
+}
+//need to make get_passengers
+int take_to_destinations(void) {
+    struct list_head *temp;
+    int closest_floor = NUM_FLOORS;
+
+    if(elevator.direction >= 0) {
+        elevator.direction = 1;
+        list_for_each(temp, &elevator.list) {
+            Passenger *p = list_entry(temp, Passenger, list);
+            closest_floor = min(closest_floor, p->destination_floor);
+        }
+        elevator.current_floor = closest_floor;
+        list_for_each(temp, &building.list) {
+            Floor *current_floor = list_entry(temp, Floor, list);
+            if(current_floor->height == closest_floor) {
+                unload_elevator(current_floor);
+                break;
+            }
+        }
+        if(elevator.size == 0) {
+            elevator.direction = -1;
+            return 1;
+        }
+    } else {
+        closest_floor = 0;
+        elevator.current_floor = closest_floor;
+        //not sure about this reference
+        temp = &building.list;
+        Floor *current_floor = list_entry(temp, Floor, list);
+        if(current_floor == NULL) {
+            return -1;
+        }
+        //if(current_floor->height == closest_floor) ?
+        //should be the right one
+        unload_elevator(current_floor);
+    }
+    return 0;
+}
+
 //prints a single floor
-int print_floor(char *buf, floorList floor) {
+int print_floor(char *buf, Floor *current_floor) {
     struct list_head *temp;
     Passenger *current_passenger;
 
-    //if floor is floor where elevator is at:
-        //sprintf(buf, "[ ] Floor %d: %d ", floor.index, floor.size);
-    //else:
-        //sprintf(buf, "[*] Floor %d: %d ", floor.index, floor.size);
-    list_for_each(temp, &floor.list) {
+    if(current_passenger == NULL) {
+        return -ENOMOM;
+    }
+
+
+    if(current_floor->height == elevator.current_floor) {
+        sprintf(buf, "[ ] Floor %d: %d ", current_floor->height + 1, current_floor->size);
+    } else {
+        sprintf(buf, "[*] Floor %d: %d ", current_floor->height + 1, current_floor->size);
+    }
+    list_for_each(temp, &current_floor->list) {
         current_passenger = list_entry(temp, Passenger, list);
         sprintf(buf, "%s ", current_passenger->name);
     }
@@ -187,25 +307,27 @@ int print_floor(char *buf, floorList floor) {
     kfree(buf);
     return 0;
 }
-int print_floors(void) {
-    int i;
-    Passenger *p;
+int print_building(void) {
 	struct list_head *temp;
+    Floor *current_floor;
 
 	char *buf = kmalloc(sizeof(char) * 100, __GFP_RECLAIM);
 	if (buf == NULL) {
-		printk(KERN_WARNING "print_elevators");
+		printk(KERN_WARNING "print_building null buffer");
 		return -ENOMEM;
-	}
+	} else if(current_floor == NULL) {
+        printk(KERN_WARNING "print_building current_floor");
+		return -ENOMEM;
+    }
 
     strcpy(message, "");
 
-    //either store in reverse order, or reverse iterate
-    //for(auto floor : floorList.reverse)
-        //print_floor(buf, floor);
-}
-void delete_passengers(int type) {
-//make delete from floor and delete from elevator
+    //not positive how this works but I think this should work?
+    list_for_each_entry_reverse(temp, &building.list, list) {
+        current_floor = list_entry(temp, Floor, list);
+        print_floor(buf, current_floor);
+    }
+
 }
 
 /********************************************************************/
@@ -219,7 +341,7 @@ int elevator_proc_open(struct inode *sp_inode, struct file *sp_file) {
 	}
 	
 	//add_elevator(get_random_int() % NUM_elevator_TYPES);
-	return print_elevators();
+	return print_building();
 }
 
 ssize_t elevator_proc_read(struct file *sp_file, char __user *buf, size_t size, loff_t *offset) {
@@ -251,11 +373,12 @@ static int elevator_init(void) {
 		return -ENOMEM;
 	}
 
-	elevators.size = 0;
-	elevators.total_weight = 0;
+	new_elevator();
+    new_building();
     //set the floor sizes as well
         //floorList.size = 3;
-	INIT_LIST_HEAD(&elevators.list);
+	INIT_LIST_HEAD(&elevator.list);
+    INIT_LIST_HEAD(&building.list);
 	
 	return 0;
 }
@@ -270,6 +393,10 @@ static void elevator_exit(void) {
     delete_from_elevators(DAILY_WORKER);
 	delete_from_elevators(MAINTENANCE_PERSON); 
 	delete_from_elevators(MAIL_CARRIER);
+
+    //removes elevator passengers and floor passengers
+    destroy_building();
+    //how to free elevator and building??? 
 
 	remove_proc_entry(ENTRY_NAME, NULL);
 }
