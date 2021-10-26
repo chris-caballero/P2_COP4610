@@ -149,8 +149,8 @@ int thread_run(void *data) {
 
                 case LOADING:
                     ssleep(2);
-                    int uld_res = unload_elevator(&param);
-                    int ld_res = load_elevator(&param);
+                    int uld_res = unload_elevator(param);
+                    int ld_res = load_elevator(param);
 
                     if(elevator.size() == 0) {
                         if(total_tally == 0) {
@@ -169,11 +169,11 @@ int thread_run(void *data) {
                         }
                     } else {
                         if(param->direction == 1) {
-                            next_stop = get_closest_above();
+                            next_stop = get_closest_above(param);
                             param->state = UP;
                             ++param->current_floor;
                         } else {
-                            next_stop = get_closest_below();
+                            next_stop = get_closest_below(param);
                             param->state = DOWN;
                             --param->current_floor;
                         }
@@ -210,6 +210,51 @@ int thread_run(void *data) {
     }
     return 0;
 }
+/************ Calculating Destinations ************/
+int get_next_stop(void) {
+    int i;
+    Floor *f;
+    
+
+    for(i = NUM_FLOORS - 1; i >= 0; i--) {
+        if(building.floors[i]->size > 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int get_closest_above(struct thread_parameter *elevator) {
+    struct list_head *temp;
+    struct list_head *dummy;
+    Passenger *p;
+    int closest = NUM_FLOORS;
+
+    //relies on all destinations lying above the current floor
+
+    list_for_each_safe(temp, dummy, &elevator->list) {
+        p = list_entry(temp, Passenger, list);
+        closest = min(closest, p->destination_floor);
+    }
+    return closest;
+}
+
+int get_closest_below(struct thread_parameter *elevator) {
+    struct list_head *temp;
+    struct list_head *dummy;
+    Passenger *p;
+    int closest = -1;
+
+    //relies on all destinations lying above the current floor
+
+    list_for_each_safe(temp, dummy, &elevator->list) {
+        p = list_entry(temp, Passenger, list);
+        closest = max(closest, p->destination_floor);
+    }
+    return closest;
+}
+
+/************ Elevator Init/Loading Actions ************/
 
 void thread_init_parameter(struct thread_parameter *param) {
 	static int size = 0;
@@ -234,68 +279,77 @@ void thread_init_parameter(struct thread_parameter *param) {
     param->kthread = kthread_run(thread_run, param, "thread elevator\n");
 }
 
-/***************************************************************/
-
-int get_next_stop(void) {
-    int i;
-    Floor *f;
-    
-
-    for(i = NUM_FLOORS - 1; i >= 0; i--) {
-        if(building.floors[i]->size > 0) {
-            return i;
-        }
-    }
-    return -1;
-}
-
-int load_elevator(Floor *f) {
-    //move list is elevator
-	struct list_head *temp;
-	struct list_head *dummy;
+int load_elevator(struct thread_parameter *elevator) {
+    struct list_head *temp;
+    struct list_head *dummy;
     Passenger *p;
 
-    list_for_each_safe(temp, dummy, &f->list) {
-        p = list_entry(temp, Passenger, list);
-        if(p->weight + elevator.total_weight > MAX_WEIGHT) {
-            break;
-        } else {
-            list_move_tail(temp, &elevator.list);
-            f->size -= 1;
-            elevator.total_weight += p->weight;
-            elevator.size += 1;
-            switch(p->type) {
-                case DAILY_WORKER:
-                    elevator.num_workers += 1;
-                    break;
-                case MAINTENANCE_PERSON:
-                    elevator.num_maintenance += 1;
-                    break;
-                case MAIL_CARRIER:
-                    elevator.num_carriers += 1;
-                    break;
-                default:
-                    return -1;
-            }
-        }
+    if(elevator->current_floor == NUM_FLOORS-1 || elevator->current_floor == 0) {
+        elevator->direction *= -1;
     }
+
+    list_for_each_safe(temp, dummy, &building.floors[elevator->current_floor]->list) {
+        p = list_entry(temp, Passenger, list);
+        if(direction == 1) {
+            if(p->destination_floor > elevator->current_floor) {
+                list_move_tail(temp, &elevator->list);
+                building.floors[elevator->current_floor]->size -= 1;
+            }
+        } else {
+            if(p->destination_floor < elevator->current_floor) {
+                list_move_tail(temp, &elevator->list);
+                building.floors[elevator->current_floor]->size -= 1;
+            }
+        }   
+    }
+    if(direction == 1) {
+        building.floors[elevator->current_floor]->up = 0;
+    } else {
+        building.floors[elevator->current_floor]->down = 0;
+    }
+
     return 0;
 }
 
-int unload_elevator(Floor *f) {
+int unload_elevator(struct thread_parameter *elevator) {
     struct list_head *temp;
-	struct list_head *dummy;
     Passenger *p;
 
-    list_for_each_safe(temp, dummy, &elevator.list) {
+    list_for_each(temp, &elevator->list) {
         p = list_entry(temp, Passenger, list);
-        if(p->destination_floor == f->height) {
+        if(p->destination_floor == elevator->current_floor) {
             list_del(temp);
             kfree(p);
         }
     }
     return 0;
 }
+
+
+/***************************************************************/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 //create passenger and add to floor[start_floor]
 int add_passenger(int start_floor, int destination_floor, int type) {
     int i;
@@ -332,11 +386,12 @@ int add_passenger(int start_floor, int destination_floor, int type) {
     new_passenger->destination_floor = destination_floor;
     new_passenger->type = type;
 
-    &building.floors[start_floor]->up = destination_floor > start_floor;
-    &building.floors[start_floor]->down = destination_floor < start_floor;
+    //if anyone on the floor is going up, up is true, same for down
+    building.floors[start_floor]->up = (building.floors[start_floor]->up || destination_floor > start_floor);
+    building.floors[start_floor]->down = (building.floors[start_floor]->down || destination_floor < start_floor);
 
     list_add_tail(&new_passenger->list, &building.floors[start_floor]->list);
-    &building.floors[start_floor]->size += 1;
+    building.floors[start_floor]->size += 1;
 
     return 0;
 }
