@@ -45,6 +45,8 @@ int total_tally;
 typedef struct {
     int size;
     int height;
+    int up;
+    int down;
     struct list_head list;
 } Floor;
 
@@ -79,13 +81,17 @@ typedef struct {
 	struct list_head list;
 } Passenger;
 
+int waitingPassengers;      //total_tally - elevator.size
+int travelingPassengers;    //elevator.size
 
+struct thread_parameter *elevator;
 
-struct thread_parameter elevator;
-
-int load_elevator(Floor *f);
-int unload_elevator(Floor *f);
+int load_elevator(struct thread_parameter *elevator);
+int unload_elevator(struct thread_parameter *elevator);
 int get_next_stop(void);
+
+int get_closest_above(struct thread_parameter *elevator);
+int get_closest_below(struct thread_parameter *elevator);
 
 int thread_run(void *data) {
     int i;
@@ -94,58 +100,32 @@ int thread_run(void *data) {
 
     while(!kthread_should_stop()) {
         if(mutex_lock_interruptible(&param->mutex) == 0) {
-            // if(total_tally == 0) {
-            //     param->state = IDLE;
-            // } else {
-            //     //if floor is 0
-            //         //for each in elevator find closest next floor
-            //         //state UP
-            //     //if floor > 0
-            //         //if elevator.size == 0
-            //             //if waiting threads
-            //                 //state LOADING
-            //             //else 
-            //                 //state DOWN
-            //         //else 
-            //             //for each in elevator find closest next floor
-            //             //state UP
-            // }
             switch(param->state) {
                 case OFFLINE:
-                    //for now, eventually just get woke by thread?
-                    for(i = 0; i < NUM_FLOORS; i++) {
-                        if(building.floors[i]->size > 0) {
-                            next_stop = building.floors[i]->height;
-                            break;
+                    if(total_tally > 0) {
+                        for(i = 0; i < NUM_FLOORS; i++) {
+                            if(building.floors[i]->size() > 0) {
+                                next_stop = i;
+                                param->state = UP;
+                                break;
+                            }
                         }
-                    }
-                    if(next_stop > 0) {
-                        param->state = UP;
-                    } else if(next_stop == 0) {
-                        param->state = LOADING;
+                        if(next_stop == param->current_floor) {
+                            param->direction = -1;
+                            param->state = LOADING;
+                        } else {
+                            param->state = UP;
+                            ++param->current_floor;
+                        }
+                    } else {
+                        param->state = IDLE;
                     }
                     break;
-                case IDLE:
-                    //wait on a passenger to wake it
-                    param->direction = 0;
-                    break;
-                case LOADING:
-                    if(param->direction == 1) {
-                        unload_elevator(building.floors[param->current_floor]);
-                    } else if(param->direction < 1) {
-                        load_elevator(building.floors[param->current_floor]);
-                    }
-                    
-                    if((next_stop = get_next_stop()) == -1) {
-                        param->state = OFFLINE;
-                    }
-                    param->state = next_stop > param->current_floor ? UP : DOWN;
-                    ssleep(2);
-                    break;
+                
                 case UP:
                     ssleep(1);
                     param->direction = 1;
-                    if(param->current_floor == next_stop) {
+                    if(param->current_floor == next_stop || building[param->current_floor].up) {
                         param->state = LOADING;
                     } 
                     if(param->current_floor == NUM_FLOORS-1) {
@@ -154,21 +134,74 @@ int thread_run(void *data) {
                         param->current_floor++;
                     }
                     break;
+
                 case DOWN:
                     ssleep(1);
                     param->direction = -1;
-                    if(building.floors[param->current_floor]->size > 0) {
+                    if(param->current_floor == next_stop || building[param->current_floor].down) {
                         param->state = LOADING;
-                    }
-                    if(param->current_floor == next_stop) {
-                        param->state = LOADING;
-                        param->direction = 1;
                     } else if(param->current_floor == 0) {
                         param->state = UP;
                     } else {
                         param->current_floor--;
                     }
                     break;
+
+                case LOADING:
+                    ssleep(2);
+                    int uld_res = unload_elevator(&param);
+                    int ld_res = load_elevator(&param);
+
+                    if(elevator.size() == 0) {
+                        if(total_tally == 0) {
+                            param->state = IDLE;
+                        } else {
+                            next_stop = get_next_stop();
+                            if(next_stop == -1) {
+                                param->state = IDLE
+                            } else if(next_stop > param->current_floor) {
+                                param->state = UP;
+                                ++param->current_floor;
+                            } else {
+                                param->state = DOWN;
+                                --param->current_floor;
+                            }
+                        }
+                    } else {
+                        if(param->direction == 1) {
+                            next_stop = get_closest_above();
+                            param->state = UP;
+                            ++param->current_floor;
+                        } else {
+                            next_stop = get_closest_below();
+                            param->state = DOWN;
+                            --param->current_floor;
+                        }
+                    }
+                    break;
+                
+                case IDLE:
+                    if(total_tally == 0) {
+                        //wait
+                    } else {
+                        next_stop = get_next_stop();
+                        if(next_stop > param->current_floor) {
+                            param->state = UP;
+                            ++param->current_floor;
+                        } else if(next_stop < param->current_floor) {
+                            param->state = DOWN;
+                            --param->current_floor;
+                        } else {
+                            if(next_stop == NUM_FLOORS - 1) {
+                                param->direction = 1;
+                            } else if(next_stop == 0) {
+                                param->direction = -1;
+                            }
+                            param->state = LOADING;
+                        }
+                    }
+                    break;
+
                 default:
                     return -1;
             }
@@ -204,19 +237,16 @@ void thread_init_parameter(struct thread_parameter *param) {
 /***************************************************************/
 
 int get_next_stop(void) {
-    struct list_head *temp;
-    Passenger *p;
-    int next_stop = NUM_FLOORS;
+    int i;
+    Floor *f;
+    
 
-    if(elevator.size == 0) {
-        return -1;
+    for(i = NUM_FLOORS - 1; i >= 0; i--) {
+        if(building.floors[i]->size > 0) {
+            return i;
+        }
     }
-
-    list_for_each(temp,  &elevator.list) {
-        p = list_entry(temp, Passenger, list);
-        next_stop = min(p->destination_floor, next_stop);
-    }
-    return next_stop;
+    return -1;
 }
 
 int load_elevator(Floor *f) {
@@ -271,7 +301,6 @@ int add_passenger(int start_floor, int destination_floor, int type) {
     int i;
     //struct list_head * temp;
     Passenger *new_passenger;
-    Floor * curr_floor;
 
     curr_floor = kmalloc(sizeof(Floor)*1, __GFP_RECLAIM);
     new_passenger = kmalloc(sizeof(Passenger)*1, __GFP_RECLAIM);
@@ -303,15 +332,11 @@ int add_passenger(int start_floor, int destination_floor, int type) {
     new_passenger->destination_floor = destination_floor;
     new_passenger->type = type;
 
-    for(i = 0; i < NUM_FLOORS; i++) {
-        curr_floor = building.floors[i];
-        if(start_floor == curr_floor->height) {
-            break;
-        }
-    }
+    &building.floors[start_floor]->up = destination_floor > start_floor;
+    &building.floors[start_floor]->down = destination_floor < start_floor;
 
-    list_add_tail(&new_passenger->list, &curr_floor->list);
-    curr_floor->size += 1;
+    list_add_tail(&new_passenger->list, &building.floors[start_floor]->list);
+    &building.floors[start_floor]->size += 1;
 
     return 0;
 }
@@ -487,6 +512,8 @@ static int elevator_init(void) {
         INIT_LIST_HEAD(&f->list);
         f->size = 0;
         f->height = i;
+        f->up = 0;
+        f->down = 0;
         building.floors[i] = f;
     }
 
