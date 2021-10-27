@@ -16,7 +16,7 @@ MODULE_DESCRIPTION("Adds all sorts of people to a list and gets stats with proc"
 
 #define ENTRY_NAME "passenger_list"
 #define ENTRY_SIZE 1000
-#define NUM_FLOORS 3
+#define NUM_FLOORS 10
 #define PERMS 0644
 #define PARENT NULL
 static struct file_operations fops;
@@ -161,9 +161,12 @@ int thread_run(void *data) {
                             } else if(next_stop > param->current_floor) {
                                 param->state = UP;
                                 param->current_floor += 1;
-                            } else {
+                            } else if(next_stop < param->current_floor) {
                                 param->state = DOWN;
                                 param->current_floor -= 1;
+                            } else {
+                                param->direction *= -1;
+                                param->state = LOADING;
                             }
                         }
                     } else {
@@ -280,10 +283,13 @@ int load_elevator(struct thread_parameter *elevator) {
     struct list_head *dummy;
     Passenger *p;
 
+    if(&building.floors[elevator->current_floor]->size == 0) {
+        return 0;
+    }
+
     if(elevator->current_floor == NUM_FLOORS-1 || elevator->current_floor == 0) {
         elevator->direction *= -1;
     }
-
     list_for_each_safe(temp, dummy, &building.floors[elevator->current_floor]->list) {
         p = list_entry(temp, Passenger, list);
         if(elevator->total_weight + p->weight > MAX_WEIGHT) {
@@ -338,18 +344,20 @@ int load_elevator(struct thread_parameter *elevator) {
 
 int unload_elevator(struct thread_parameter *elevator) {
     struct list_head *temp;
+    struct list_head *dummy;
     Passenger *p;
 
     if(elevator->size == 0) {
-        return -1;
+        return 0;
     }
 
-    list_for_each(temp, &elevator->list) {
+    list_for_each_safe(temp, dummy, &elevator->list) {
         p = list_entry(temp, Passenger, list);
         if(p->destination_floor == elevator->current_floor) {
             list_del(temp);
             kfree(p);
             elevator->size -= 1;
+            elevator->total_weight -= p->weight;
             total_tally -= 1;
             total_serviced += 1;
             switch(p->type) {
@@ -372,27 +380,6 @@ int unload_elevator(struct thread_parameter *elevator) {
 /***************************************************************/
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 //create passenger and add to floor[start_floor]
 int add_passenger(int start_floor, int destination_floor, int type) {
     Passenger *new_passenger;
@@ -400,6 +387,10 @@ int add_passenger(int start_floor, int destination_floor, int type) {
     new_passenger = kmalloc(sizeof(Passenger)*1, __GFP_RECLAIM);
     if(new_passenger == NULL) {
         return -ENOMEM;
+    }
+
+    if(start_floor == destination_floor) {
+        return -1;
     }
 
     new_passenger->weight = 150;
@@ -613,18 +604,12 @@ static int elevator_init(void) {
 		return PTR_ERR(elevator.kthread);
     }   
 
-    for(i = 0; i < 2; i++) {
+    for(i = 0; i < 50; i++) {
         start = get_random_int() % NUM_FLOORS;
         end =  get_random_int() % NUM_FLOORS;
-        if(start == 0) {
-            while(end == 0) {
-                end =  get_random_int() % NUM_FLOORS;
-            }
-        } else {
-            end = 0;
-        }
         add_passenger(start, end, get_random_int() % NUM_PERSON_TYPES);
     }
+    
     return 0;
 }
 module_init(elevator_init);
