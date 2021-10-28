@@ -3,12 +3,12 @@
 ### Chris Caballero, John Mijares, Anika Patel
 
 ## The TAR File Contains:
-#### Part 1 + Part 2
+#### Part 1 
     (1) /Part1/empty.c | empty program implementation
     (2) /Part1/empty.trace | obtained from strace, records system calls called
     (3) /Part1/part1.c | adds four system calls to the empty program
     (4) /Part1/part1.trace | obtained from strace, records system calls called
-
+#### Part 2
     (5) /Part2/my_timer.c | kernel module implementation
     (6) /Part2/Makefile | contains commands to compile and make executable for kernel module
         (a) creates module and related files in the current working directory
