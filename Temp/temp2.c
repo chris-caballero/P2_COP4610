@@ -82,9 +82,6 @@ struct thread_passenger {
     struct mutex mutex;
 };
 
-
-condition waiting_passengers;
-
 struct thread_elevator elevator;
 
 int load_elevator(elevator *elevator);
@@ -97,16 +94,8 @@ int get_closest_below(elevator *elevator);
 int add_passenger(struct thread_passenger *new_passenger, int start_floor, int destination_floor, int type);
 
 void thread_run_passenger(void *data) {
-    struct thread_elevator *param = data;
+    struct thread_passenger *param = data;
 
-    if(mutex_lock_interruptible(&param->mutex) == 0) {
-        do {
-            start = get_random_int() % NUM_FLOORS;
-            end =  get_random_int() % NUM_FLOORS;
-        } while(start == end);
-        add_passenger(param, start, end, get_random_int() % NUM_PERSON_TYPES);
-    }
-    mutex_unlock(&param->mutex);
     while(!kthread_should_stop()) {
         ssleep(2);
     }
@@ -149,23 +138,26 @@ int add_passenger(struct thread_passenger *new_passenger, int start_floor, int d
     return 0;
 }
 
-void thread_init_thread_passenger(struct thread elevator *param) {
-	static int start_floor = 0;
-    static int destination_floor = OFFLINE;
-    static int type = 0;
-    static int weight = 0;
-    static const char *name = "";
-    static condition serviced = 0;
-
-    param->start_floor = start_floor;
-    param->destination_floor = destination_floor;
-    param->type = type;
-    param->weight = weight;
-    param->name = name;
-    param->serviced = 0;
+void thread_init_passenger(struct thread_passenger *param, int start_floor, int destination_floor, int type) {
     INIT_LIST_HEAD(&param->list);
     mutex_init(&param->mutex);
-    param->kthread = kthread_run(thread_run_elevator, param, "thread elevator\n");
+    add_passenger(param, start_floor, destination_floor, type);
+    param->kthread = kthread_run(thread_run_passenger, param, "thread elevator\n");
+	// static int start_floor = 0;
+    // static int destination_floor = OFFLINE;
+    // static int type = 0;
+    // static int weight = 0;
+    // static const char *name = "";
+    // static condition serviced = 0;
+
+    // param->start_floor = start_floor;
+    // param->destination_floor = destination_floor;
+    // param->type = type;
+    // param->weight = weight;
+    // param->name = name;
+    // param->serviced = 0;
+    
+    
 }
 
 /************ Thread Elevator************/

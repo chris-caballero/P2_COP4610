@@ -80,74 +80,61 @@ int get_next_stop(void);
 int get_closest_above(struct thread_elevator *elevator);
 int get_closest_below(struct thread_elevator *elevator);
 
-struct thread_passenger {
+typedef struct {
     int start_floor;
     int destination_floor;
     int type;
     int weight;
 	const char *name;
 	struct list_head list;
+} Passenger;
 
-    struct task_struct *kthread;
-    struct mutex mutex;
-};
-// typedef struct {
-//     int start_floor;
-//     int destination_floor;
-//     int type;
-//     int weight;
-// 	const char *name;
-// 	struct list_head list;
-// } struct thread_passenger;
+int add_passenger(int start_floor, int destination_floor, int type) {
+    Passenger *new_passenger;
 
-int thread_run_passenger(void *data) {
-    //struct thread_passenger *param = data;
-    while(!kthread_should_stop()) {
-        ssleep(5);
+    new_passenger = kmalloc(sizeof(Passenger)*1, __GFP_RECLAIM);
+    if(new_passenger == NULL) {
+        return -ENOMEM;
     }
-    return 0;
-}
 
-void thread_init_passenger(struct thread_passenger *param, int start_floor, int destination_floor, int type) {
     if(start_floor == destination_floor) {
-        return;
+        return -1;
     }
 
-    param->weight = 150;
+    new_passenger->weight = 150;
     switch(type) {
         case DAILY_WORKER:
-            param->name = "D";
+            new_passenger->name = "D";
             break;
         case MAINTENANCE_PERSON:
-            param->name = "M";
-            param->weight += 20;
+            new_passenger->name = "M";
+            new_passenger->weight += 20;
             break;
         case MAIL_CARRIER:
-            param->name = "C";
-            param->weight += 75;
+            new_passenger->name = "C";
+            new_passenger->weight += 75;
             break;
         default:
-            return;
+            return -1;
     }
 
-    param->start_floor = start_floor;
-    param->destination_floor = destination_floor;
-    param->type = type;
-    INIT_LIST_HEAD(&param->list);
-    mutex_init(&param->mutex);
+    new_passenger->start_floor = start_floor;
+    new_passenger->destination_floor = destination_floor;
+    new_passenger->type = type;
+    INIT_LIST_HEAD(&new_passenger->list);
 
     if(mutex_lock_interruptible(&building.mutex) == 0) {
         //if anyone on the floor is going up, up is true, same for down
         building.floors[start_floor]->up = (building.floors[start_floor]->up || destination_floor > start_floor);
         building.floors[start_floor]->down = (building.floors[start_floor]->down || destination_floor < start_floor);
 
-        list_add_tail(&param->list, &building.floors[start_floor]->list);
+        list_add_tail(&new_passenger->list, &building.floors[start_floor]->list);
         building.floors[start_floor]->size += 1;
 
         building.total_tally++;
         mutex_unlock(&building.mutex);
     }
-    param->kthread = kthread_run(thread_run_passenger, param, "thread passenger\n");
+    return 0;
 }
 
 //elevator thread running process
@@ -399,7 +386,7 @@ int get_next_stop(void) {
 int get_closest_above(struct thread_elevator *elevator) {
     struct list_head *temp;
     struct list_head *dummy;
-    struct thread_passenger *p;
+    Passenger *p;
     int closest = NUM_FLOORS;
 
     //relies on all destinations lying above the current floor
@@ -407,7 +394,7 @@ int get_closest_above(struct thread_elevator *elevator) {
         //since everyone we pick up is going in the same direction
     //find the min destination_floor among all passengers
     list_for_each_safe(temp, dummy, &elevator->list) {
-        p = list_entry(temp, struct thread_passenger, list);
+        p = list_entry(temp, Passenger, list);
         closest = min(closest, p->destination_floor);
     }
     return closest;
@@ -416,13 +403,13 @@ int get_closest_above(struct thread_elevator *elevator) {
 int get_closest_below(struct thread_elevator *elevator) {
     struct list_head *temp;
     struct list_head *dummy;
-    struct thread_passenger *p;
+    Passenger *p;
     int closest = -1;
 
     //relies on all destinations lying below the current floor
     //works opposite to get_closest_above
     list_for_each_safe(temp, dummy, &elevator->list) {
-        p = list_entry(temp, struct thread_passenger, list);
+        p = list_entry(temp, Passenger, list);
         closest = max(closest, p->destination_floor);
     }
     return closest;
@@ -432,7 +419,7 @@ int get_closest_below(struct thread_elevator *elevator) {
 int load_elevator(struct thread_elevator *elevator) {
     struct list_head *temp;
     struct list_head *dummy;
-    struct thread_passenger *p;
+    Passenger *p;
 
     if(mutex_lock_interruptible(&building.mutex) == 0) {
         //if the floor is empty, no need to load
@@ -448,7 +435,7 @@ int load_elevator(struct thread_elevator *elevator) {
         }
 
         list_for_each_safe(temp, dummy, &building.floors[elevator->current_floor]->list) {
-            p = list_entry(temp, struct thread_passenger, list);
+            p = list_entry(temp, Passenger, list);
             if(MAX_WEIGHT - elevator->total_weight <= 150) {
                 break;
             } else if(elevator->total_weight + p->weight > MAX_WEIGHT) {
@@ -460,7 +447,7 @@ int load_elevator(struct thread_elevator *elevator) {
                 //if passenger wants to go up
                 if(p->destination_floor > elevator->current_floor) {
                     //remove the passenger from the list and add it to the elevator
-                    //list_move_tail(temp, &elevator->list);
+                    list_move_tail(temp, &elevator->list);
                     //elevator has one more passenger
                     elevator->size += 1;
                     //elevator weight increases by passenger weight
@@ -488,7 +475,7 @@ int load_elevator(struct thread_elevator *elevator) {
                 //if passenger wants to go down
                 if(p->destination_floor < elevator->current_floor) {
                     //procedure to load identical to when elevator is moving up
-                    //list_move_tail(temp, &elevator->list);
+                    list_move_tail(temp, &elevator->list);
                     elevator->size += 1;
                     elevator->total_weight += p->weight;
                     switch(p->type) {
@@ -527,14 +514,14 @@ int load_elevator(struct thread_elevator *elevator) {
 int unload_elevator(struct thread_elevator *elevator) {
     struct list_head *temp;
     struct list_head *dummy;
-    struct thread_passenger *p;
+    Passenger *p;
     //elevator is empty so there is no one to unload
     if(elevator->size == 0) {
         return 0;
     }
 
     list_for_each_safe(temp, dummy, &elevator->list) {
-        p = list_entry(temp, struct thread_passenger, list);
+        p = list_entry(temp, Passenger, list);
         //if the passenger wants to get off at this floor
         if(p->destination_floor == elevator->current_floor) {
             //remove from elevator list
@@ -560,20 +547,17 @@ int unload_elevator(struct thread_elevator *elevator) {
                 building.total_serviced += 1;
                 mutex_unlock(&building.mutex);
             }
-            kthread_stop(p->kthread);
+            kfree(p);
         }
     }
     return 0;
 }
 
-
 /***************************************************************/
-
-
 
 int print_floor(Floor* floor) {
     struct list_head *temp;
-    struct thread_passenger *p;
+    Passenger *p;
     char *buf;
 
     buf = kmalloc(sizeof(char) * 100, __GFP_RECLAIM);
@@ -592,7 +576,7 @@ int print_floor(Floor* floor) {
     strcat(message, buf);
 
     list_for_each(temp, &floor->list) {
-        p = list_entry(temp, struct thread_passenger, list);
+        p = list_entry(temp, Passenger, list);
         sprintf(buf, "%s ", p->name);
         strcat(message, buf);
     }
@@ -716,7 +700,6 @@ int elevator_proc_release(struct inode *sp_inode, struct file *sp_file) {
 
 static int elevator_init(void) {
     int i, start, end;
-    struct thread_passenger p;
 	fops.open = elevator_proc_open;
 	fops.read = elevator_proc_read;
 	fops.release = elevator_proc_release;
@@ -749,14 +732,13 @@ static int elevator_init(void) {
 		return PTR_ERR(elevator.kthread);
     }   
 
-    // for(i = 0; i < 3; i++) {
-    do {
-        start = get_random_int() % NUM_FLOORS;
-        end = get_random_int() % NUM_FLOORS;
-    } while(start == end);
-    //     struct thread_passenger p;
-    thread_init_passenger(&p, start, end, get_random_int() % NUM_PERSON_TYPES); 
-    // }
+    for(i = 0; i < 10; i++) {
+        do {
+            start = get_random_int() % NUM_FLOORS;
+            end = get_random_int() % NUM_FLOORS;
+        } while(start == end);
+        add_passenger(start, end, get_random_int() % NUM_PERSON_TYPES); 
+    }
     
     return 0;
 }
