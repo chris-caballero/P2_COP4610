@@ -14,7 +14,7 @@
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Adds all sorts of people to a list and gets stats with proc");
 
-#define ENTRY_NAME "passenger_list"
+#define ENTRY_NAME "elevator"
 #define ENTRY_SIZE 1000
 #define NUM_FLOORS 10
 #define PERMS 0644
@@ -80,6 +80,8 @@ struct thread_elevator {
 };
 struct thread_elevator elevator;
 
+int shutdown_signal;
+
 int load_elevator(struct thread_elevator *elevator);
 int unload_elevator(struct thread_elevator *elevator);
 int get_next_stop(void);
@@ -99,15 +101,47 @@ typedef struct {
 
 int add_passenger(int start_floor, int destination_floor, int type);
 
+
+/************************** System Call Handlers **************************/
+
+extern long (*STUB_start_elevator)(void);
+extern long (*STUB_issue_request)(int,int,int);
+extern long (*STUB_stop_elevator)(void);
+
+long start_elevator(void) {
+	if(elevator == NULL) {
+		return -ENOMEM;
+	}
+	
+	if(elevator.state != OFFLINE) {
+		return 1;
+	}
+	elevator.state = IDLE;
+	return 0;
+}
+long issue_request(int start_floor, int destination_floor, int type) {
+	if(start_floor < 0 || start_floor >= NUM_FLOORS || destination_floor < 0 || destination_floor >= NUM_FLOORS) {
+		return 1
+	}
+	add_passenger(start_floor, destination_floor, type);
+
+	return 0;
+}
+long stop_elevator(void) {
+	if(shutdown_signal == 1) {
+		return 1;
+	}
+	shutdown_signal = 1;
+	return 0;
+}
+
+
 /************************** Elevator Definitions **************************/
 
 //elevator thread running process
 int thread_run_elevator(void *data) {
-    //int i;
-    int state = OFFLINE;
-    int prev_state = OFFLINE;
-    int next_stop = -1;
     struct thread_elevator *param = data;
+	int prev_state = param->state, next_stop = -1;
 
     //loop these instructions while the module is open (since close is when we stop the thread)
     while(!kthread_should_stop()) {
@@ -120,28 +154,9 @@ int thread_run_elevator(void *data) {
         switch(state) {
             //the elevator is just starting up
             case OFFLINE:
-                if(mutex_lock_interruptible(&elevator.mutex) == 0) {
-                    //if there is a passenger thread running (building.total_tally > 0)
-                    if(mutex_lock_interruptible(&building.mutex) == 0) {
-                        if(building.total_tally > 0) {
-                            mutex_unlock(&building.mutex);
-                            next_stop = get_next_stop();
-                            if(next_stop == 0) {
-                                param->direction = -1;
-                                param->state = LOADING;
-                            } else {
-                                //start elevator going up, it will check first if needs to load
-                                param->state = UP;
-                            }
-                        } else {
-                            mutex_unlock(&building.mutex);
-                            //no one waiting to be serviced, go into waiting state (IDLE)
-                            param->state = IDLE;
-                        }
-                    }
-                    mutex_unlock(&elevator.mutex);
-                }
-                prev_state = OFFLINE;
+				ssleep(1);
+				//elevator will be turned on externally
+				//poll every second to see if elevator in IDLE state yet
                 break;
             //moving up in the elevator
             case UP:
@@ -165,12 +180,17 @@ int thread_run_elevator(void *data) {
                             //load the elevator
                             param->state = LOADING;
                         } else if(building.floors[param->current_floor]->up && MAX_WEIGHT - param->total_weight > 150) {
-                            //if the current floor has up = 1 (essentially a button indicator),
-                            //elevator can quickly check if anyone is going in the same direction
-                            if(param->current_floor == 0) {
-                                param->direction = -1;
-                            }
-                            param->state = LOADING;
+							//if we are not shutting the elevator down, pick people up from floors
+							if(shutdown_signal == 0) {
+								//if the current floor has up = 1 (essentially a button indicator),
+								//elevator can quickly check if anyone is going in the same direction
+								if(param->current_floor == 0) {
+									param->direction = -1;
+								}
+								param->state = LOADING;
+							}
+							//otherwise we are just planning on dropping people off so continue
+
                         } else if(param->current_floor == NUM_FLOORS-1) {
                             //if the current floor is the top floor, go down (just to prevent infinite loops, may not run)
                             param->state = DOWN;
@@ -197,10 +217,12 @@ int thread_run_elevator(void *data) {
                         if(param->current_floor == next_stop) {
                             param->state = LOADING;
                         } else if (building.floors[param->current_floor]->down && MAX_WEIGHT - param->total_weight > 150) {
-                            if(param->current_floor == NUM_FLOORS-1) {
-                                param->direction = 1;
-                            }
-                            param->state = LOADING;
+							if(shutdown_signal == 0) {
+								if(param->current_floor == NUM_FLOORS-1) {
+									param->direction = 1;
+								}
+								param->state = LOADING;
+							}
                         } else if(param->current_floor == 0) {
                             param->state = UP;
                         }
@@ -218,35 +240,43 @@ int thread_run_elevator(void *data) {
                     //calls function to unload the elevator, see unload_elevator(struct thread_elevator *elevator);
                     unload_elevator(param);
                     //calls function to load the elevator, see load_elevator(struct thread_elevator *elevator);
-                    load_elevator(param);
+					//if shutdown signal is sent, we don't load the elevator anymore
+					if(shutdown_signal == 0) {
+						load_elevator(param);
+					}
                     //if the elevator is empty
                     if(param->size == 0) {
-                        //if there is no one in the building, go into IDLE waiting state
-                        if(building.total_tally == 0) {
-                            param->state = IDLE;
-                        } else {
-                            //if there is no one in the elevator, but someone in the building
-                            //find the next floor using "int get_next_stop(void)"
-                            next_stop = get_next_stop();
+						//if there is no one in the elevator and a shutdown signal has been sent, shutdown
+						if(shutdown_signal == 1) {
+							param->state = OFFLINE;
+						} else {
+							//if there is no one in the building, go into IDLE waiting state
+							if(building.total_tally == 0) {
+								param->state = IDLE;
+							} else {
+								//if there is no one in the elevator, but someone in the building
+								//find the next floor using "int get_next_stop(void)"
+								next_stop = get_next_stop();
 
-                            if(next_stop == -1) {
-                                //won't happen, but just in case, go into idle state if you dont find a next stop
-                                param->state = IDLE;
-                            } else if(next_stop > param->current_floor) {
-                                //next floor to pick people up at is above us, go up
-                                param->state = UP;
-                            } else if(next_stop < param->current_floor) {
-                                //next floor to pick people up at is below us, go down
-                                param->state = DOWN;
-                            } else {
-                                //this is an outlier case
-                                //when the next_stop is the same as the current_floor, we are at a pivot
-                                //we need to change direction from here as if we are at the top floor or the lobby
-                                param->direction *= -1;
-                                param->state = LOADING;
-                            }
-                        }
-                    } else {
+								if(next_stop == -1) {
+									//won't happen, but just in case, go into idle state if you dont find a next stop
+									param->state = IDLE;
+								} else if(next_stop > param->current_floor) {
+									//next floor to pick people up at is above us, go up
+									param->state = UP;
+								} else if(next_stop < param->current_floor) {
+									//next floor to pick people up at is below us, go down
+									param->state = DOWN;
+								} else {
+									//this is an outlier case
+									//when the next_stop is the same as the current_floor, we are at a pivot
+									//we need to change direction from here as if we are at the top floor or the lobby
+									param->direction *= -1;
+									param->state = LOADING;
+								}
+							}
+						}
+					} else {
                         //elevator has passengers so find the closest floor above or below using:
                         //get_closest_above(struct thread_elevator *elevator), //going up
                         //get_closest_below(struct thread_elevator *elevator); //going down 
@@ -703,6 +733,10 @@ static int elevator_init(void) {
 	fops.open = elevator_proc_open;
 	fops.read = elevator_proc_read;
 	fops.release = elevator_proc_release;
+
+	STUB_start_elevator = start_elevator;
+	STUB_issue_request = issue_request;
+	STUB_stop_elevator = stop_elevator;
 	
 	if (!proc_create(ENTRY_NAME, PERMS, NULL, &fops)) {
 		printk(KERN_WARNING "elevator_init\n");
@@ -745,7 +779,18 @@ static int elevator_init(void) {
 module_init(elevator_init);
 
 static void elevator_exit(void) {
+	int s;
     //first we need to let elevator finish
+	shutdown_signal = 1;
+	do {
+		ssleep(1);
+		if(mutex_lock_interruptible(&elevator.mutex) == 0) {
+			s = elevator.state;
+			mutex_unlock(&elevator.mutex);
+		}
+	} while(s != OFFLINE)
+
+
     if(mutex_lock_interruptible(&building.mutex) == 0) {
         delete_floors();
         mutex_unlock(&building.mutex);
@@ -754,6 +799,11 @@ static void elevator_exit(void) {
     kthread_stop(elevator.kthread);
 	remove_proc_entry(ENTRY_NAME, NULL);
     mutex_destroy(&elevator.mutex);
-    printk(KERN_NOTICE "Removing /proc/%s\n", ENTRY_NAME);
+
+	STUB_start_elevator = NULL;
+	STUB_issue_request = NULL;
+	STUB_stop_elevator = NULL;
+
+	printk(KERN_NOTICE "Removing /proc/%s\n", ENTRY_NAME);
 }
 module_exit(elevator_exit);

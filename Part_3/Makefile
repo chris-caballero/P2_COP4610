@@ -1,5 +1,5 @@
-obj-y := elevator_calls.o
-obj-m := syscallModule.o
+obj-y := sys_call.o
+obj-m := elevator.o
 
 PWD := $(shell pwd)
 KDIR := /lib/modules/`uname -r`/build
