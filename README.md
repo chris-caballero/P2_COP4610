@@ -3,7 +3,7 @@
 ### Chris Caballero, John Mijares, Anika Patel
 
 ## The TAR File Contains:
-#### Part 1
+#### Part 1 + Part 2
     (1) /Part1/empty.c | empty program implementation
     (2) /Part1/empty.trace | obtained from strace, records system calls called
     (3) /Part1/part1.c | adds four system calls to the empty program
@@ -14,7 +14,7 @@
         (a) creates module and related files in the current working directory
     (7) sudo make | compiles the file + creates kernel object my_timer.ko
     (8) make clean | removes the kernel object and cleans up unnecessary files
-#### Part 2
+#### Part 3
     (1) /Part3/elevator.c | elevator implementation
         (a) contains structs for the elevator thread, building, floors and passengers
         (b) contains proc file functions and module init + module exit
