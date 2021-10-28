@@ -1,3 +1,4 @@
+//included files for part 2 
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -8,16 +9,23 @@ MODULE_LICENSE("Dual BSD/GPL");
 
 #define BUF_LEN 100
 
+// static struct used for initialization
 static struct proc_dir_entry* proc_entry;
 
+//static variables used for 
 static char msg[BUF_LEN];
 static int procfs_buf_len = 0;
+
+//ints used for tracking the previous times
 static int previous_time = 0;
 static int previous_nsec = 0;
 
+//initializing the proc
 static ssize_t procfile_read(struct file* file, char * ubuf, size_t count, loff_t *ppos)
 {
 
+//variables used for the proc
+	
 	long int current_time;
 	long int current_nsec;
 	long int s_diff;
@@ -25,12 +33,16 @@ static ssize_t procfile_read(struct file* file, char * ubuf, size_t count, loff_
 
 	printk(KERN_INFO "proc_read\n");
 
+// function used to trac the cuurent time is sec  and nsec
     current_time  = current_kernel_time().tv_sec;
 	current_nsec = current_kernel_time().tv_nsec;
+
+//for proc buffer
 	procfs_buf_len = 0;
 	if (*ppos > 0 || count < procfs_buf_len)
 		return 0;
 
+// if else series used to track current and previous time
 	if(!previous_time) {
 		previous_time = current_time;
 		previous_nsec = current_nsec;
@@ -48,6 +60,7 @@ static ssize_t procfile_read(struct file* file, char * ubuf, size_t count, loff_
 		previous_nsec = current_nsec;
 	}
 
+//used for error detection
 	if (copy_to_user(ubuf, msg, procfs_buf_len))
 		return -EFAULT;
 
@@ -59,7 +72,7 @@ static ssize_t procfile_read(struct file* file, char * ubuf, size_t count, loff_
 	return procfs_buf_len;
 }
 
-
+// struct used to write to the proc file 
 static ssize_t procfile_write(struct file* file, const char * ubuf, size_t count, loff_t* ppos)
 {
 	printk(KERN_INFO "proc_write\n");
@@ -83,6 +96,7 @@ static struct file_operations procfile_fops = {
 	.write = procfile_write,
 };
 
+// static timer initializer
 static int timer_init(void) {
 	proc_entry = proc_create("timer", 0666, NULL, &procfile_fops);
 
@@ -91,6 +105,8 @@ static int timer_init(void) {
 
 	return 0;
 }
+
+// module initializer implements timer_init
 module_init(timer_init);
 
 static void timer_exit(void) {
