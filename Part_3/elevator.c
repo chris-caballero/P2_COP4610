@@ -781,7 +781,6 @@ static int elevator_init(void) {
 module_init(elevator_init);
 
 static void elevator_exit(void) {
-	int s;
     //first we need to let elevator finish
 	shutdown_signal = 1;
 	do {
