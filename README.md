@@ -27,10 +27,10 @@
 #### README.md 
     (1) README.md | docmentation of project and distribution of labor
 
-#### Known Bugs + Unfinished Portions + Considerations:
+## Known Bugs + Unfinished Portions + Considerations:
     N/A
 
-#### Division of Labor:
+## Division of Labor:
 
     Part 1: System-call Tracing | Chris Caballero
     Part 2: Kernel Module | John Mijares, Anika Patel, Chris Caballero
