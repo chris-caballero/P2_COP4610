@@ -1,7 +1,5 @@
 
 #include <unistd.h>
-#include <sys/types.h>
-#include <sys/stat.h>
 #include <fcntl.h>
 int main() {
     //(1) execute ls -l
@@ -9,7 +7,7 @@ int main() {
 
     //(2) change to parent directory
     char *path = "..";
-    chdir(path);
+    chdir("..");
 
     //(3) read by owner
     char *outfile = "output.txt";

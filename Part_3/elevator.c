@@ -37,6 +37,8 @@ static struct file_operations fops;
 static char *message;
 static int read_p;
 
+// extern int errno;
+
 /************************** Building/Floor structs and functions **************************/
 
 typedef struct {
@@ -109,9 +111,10 @@ extern long (*STUB_issue_request)(int,int,int);
 extern long (*STUB_stop_elevator)(void);
 
 long start_elevator(void) {
-	if(elevator == NULL) {
-		return -ENOMEM;
-	}
+    shutdown_signal = 0;
+	if(IS_ERR(elevator.kthread)) {
+        return -ENOMEM;
+    }
 	
 	if(elevator.state != OFFLINE) {
 		return 1;
@@ -121,7 +124,7 @@ long start_elevator(void) {
 }
 long issue_request(int start_floor, int destination_floor, int type) {
 	if(start_floor < 0 || start_floor >= NUM_FLOORS || destination_floor < 0 || destination_floor >= NUM_FLOORS) {
-		return 1
+		return 1;
 	}
 	add_passenger(start_floor, destination_floor, type);
 
@@ -141,7 +144,7 @@ long stop_elevator(void) {
 //elevator thread running process
 int thread_run_elevator(void *data) {
     struct thread_elevator *param = data;
-	int prev_state = param->state, next_stop = -1;
+	int state = param->state, prev_state = state, next_stop = -1;
 
     //loop these instructions while the module is open (since close is when we stop the thread)
     while(!kthread_should_stop()) {
@@ -294,7 +297,12 @@ int thread_run_elevator(void *data) {
                 break;
             //waiting state
             case IDLE:
-                if(mutex_lock_interruptible(&building.mutex) == 0) {
+                if(shutdown_signal == 1) {
+                    if(mutex_lock_interruptible(&elevator.mutex) == 0) {
+                        param->state = OFFLINE;
+                        mutex_unlock(&elevator.mutex);
+                    }
+                } else if (mutex_lock_interruptible(&building.mutex) == 0) {
                     if(building.total_tally > 0) {
                         mutex_unlock(&building.mutex);
                         //tally > 0 shows we have a waiting passenger
@@ -729,7 +737,7 @@ int elevator_proc_release(struct inode *sp_inode, struct file *sp_file) {
 /************************** Kernel Module Init/Exit **************************/
 
 static int elevator_init(void) {
-    int i, start, end;
+    int i;
 	fops.open = elevator_proc_open;
 	fops.read = elevator_proc_read;
 	fops.release = elevator_proc_release;
@@ -737,6 +745,8 @@ static int elevator_init(void) {
 	STUB_start_elevator = start_elevator;
 	STUB_issue_request = issue_request;
 	STUB_stop_elevator = stop_elevator;
+
+    shutdown_signal = 0;
 	
 	if (!proc_create(ENTRY_NAME, PERMS, NULL, &fops)) {
 		printk(KERN_WARNING "elevator_init\n");
@@ -764,14 +774,6 @@ static int elevator_init(void) {
         printk(KERN_WARNING "error spawning thread");
 		remove_proc_entry(ENTRY_NAME, NULL);
 		return PTR_ERR(elevator.kthread);
-    }   
-
-    for(i = 0; i < 10; i++) {
-        do {
-            start = get_random_int() % NUM_FLOORS;
-            end = get_random_int() % NUM_FLOORS;
-        } while(start == end);
-        add_passenger(start, end, get_random_int() % NUM_PERSON_TYPES); 
     }
     
     return 0;
@@ -784,11 +786,7 @@ static void elevator_exit(void) {
 	shutdown_signal = 1;
 	do {
 		ssleep(1);
-		if(mutex_lock_interruptible(&elevator.mutex) == 0) {
-			s = elevator.state;
-			mutex_unlock(&elevator.mutex);
-		}
-	} while(s != OFFLINE)
+	} while(elevator.state != OFFLINE);
 
 
     if(mutex_lock_interruptible(&building.mutex) == 0) {

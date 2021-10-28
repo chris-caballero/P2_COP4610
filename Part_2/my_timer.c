@@ -15,16 +15,6 @@ static int procfs_buf_len = 0;
 static int previous_time = 0;
 static int previous_nsec = 0;
 
-/*
-enum States{idle = 0, offline = 1, loading = 0, up = 0, down = 0};
-enum Workers{daily, maintenance, mail};
-
-static int floor = 0;
-static int load = 0;
-static int serviced = 0;
-static int waiting = 0;
-*/
-
 static ssize_t procfile_read(struct file* file, char * ubuf, size_t count, loff_t *ppos)
 {
 
@@ -34,9 +24,8 @@ static ssize_t procfile_read(struct file* file, char * ubuf, size_t count, loff_
 	long int ns_diff;
 
 	printk(KERN_INFO "proc_read\n");
-//	procfs_buf_len = strlen(msg);
 
-        current_time  = current_kernel_time().tv_sec;
+    current_time  = current_kernel_time().tv_sec;
 	current_nsec = current_kernel_time().tv_nsec;
 	procfs_buf_len = 0;
 	if (*ppos > 0 || count < procfs_buf_len)
@@ -94,8 +83,7 @@ static struct file_operations procfile_fops = {
 	.write = procfile_write,
 };
 
-static int timer_init(void)
-{
+static int timer_init(void) {
 	proc_entry = proc_create("timer", 0666, NULL, &procfile_fops);
 
 	if (proc_entry == NULL)
@@ -103,15 +91,15 @@ static int timer_init(void)
 
 	return 0;
 }
+module_init(timer_init);
 
-static void timer_exit(void)
-{
+static void timer_exit(void) {
 	proc_remove(proc_entry);
 	return;
 }
-
-
-
-module_init(timer_init);
 module_exit(timer_exit);
+
+
+
+
 
