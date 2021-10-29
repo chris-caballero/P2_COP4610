@@ -28,7 +28,7 @@
     (1) README.md | docmentation of project and distribution of labor
 
 ## Known Bugs + Unfinished Portions + Considerations:
-    (1) Bug | elevator sometimes skips loading a person while it switches direction
+    (1) Bug | elevator sometimes skips loading passengers after it switches direction
         (a) This is a bug in the normal working of the elevator, but not a bug in the completion of the system.
         (b) I believe this is may be a race-condition that I did not cover, or the logic between changing states from LOADING to UP/DOWN.
         (c) Does not appear to occur all of the time.
