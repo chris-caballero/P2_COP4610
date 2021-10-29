@@ -24,8 +24,10 @@
     (4) make | compiles the kernel module + compiles a new syscall implementation
     (5) make clean | removes the kernal module and cleans up unnecessary files
 
-#### README.md 
+#### README.md + GIT_Commit_Log.pdf
     (1) README.md | docmentation of project and distribution of labor
+    (2) GIT_Commit_Log.pdf | screenshots of the commit history
+        (a) Note: since the VM was on my computer, a lot of the work was also committed from my computer (Chris Caballero). We met several times to work together on the project, and our respective parts are outlined in the Division of Labor section.
 
 ## Known Bugs + Unfinished Portions + Considerations:
     (1) Bug | elevator sometimes skips loading passengers after it switches direction
